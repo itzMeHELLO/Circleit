@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CircleIt</title>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body { font-family: Arial; background:#2b0a3d; color:white; text-align:center; }
+    header { background:purple; padding:15px; font-size:28px; }
+    .box { background:#3a0066; padding:10px; margin:10px; border-radius:10px; }
+    button { margin:5px; padding:5px; }
+  </style>
+</head>
+
+<body>
+
+<header>🟣 CircleIt</header>
+
+<div id="auth">
+  <input id="email" placeholder="Email"><br>
+  <input id="password" type="password"><br>
+  <button onclick="signUp()">Sign Up</button>
+  <button onclick="login()">Log In</button>
+</div>
+
+<div id="game" style="display:none;">
+
+  <div class="box">
+    💰 Tokens: <span id="tokens">0</span>
+  </div>
+
+  <div class="box">
+    <button onclick="openPack()">🎁 Open Pack (10 tokens)</button>
+  </div>
+
+  <div class="box">
+    <h3>🎒 Inventory</h3>
+    <div id="inventory"></div>
+  </div>
+
+  <div class="box">
+    <h3>🔄 Trade</h3>
+    <input id="tradeUser" placeholder="User ID">
+    <input id="yourItem" placeholder="Your item">
+    <input id="theirItem" placeholder="Their item">
+    <button onclick="sendTrade()">Send Trade</button>
+    <div id="trades"></div>
+  </div>
+
+</div>
+
+<script>
+
+const firebaseConfig = {
+  apiKey: "YOUR_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT.firebaseio.com"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.database();
+
+let user;
+
+const OWNER_EMAIL = "your@email.com";
+
+// AUTH
+function signUp(){
+  auth.createUserWithEmailAndPassword(email.value,password.value)
+  .then(u=>{
+    user=u.user;
+    db.ref("users/"+user.uid).set({
+      tokens:50,
+      inventory:{},
+      username: email.value.split("@")[0],
+      role: (email.value===OWNER_EMAIL?"owner":"player")
+    });
+    start();
+  });
+}
+
+function login(){
+  auth.signInWithEmailAndPassword(email.value,password.value)
+  .then(u=>{
+    user=u.user;
+    start();
+  });
+}
+
+function start(){
+  auth.style.display="none";
+  game.style.display="block";
+  load();
+}
+
+// LOAD
+function load(){
+  db.ref("users/"+user.uid).on("value",snap=>{
+    let d=snap.val();
+    tokens.innerText=d.tokens;
+
+    let inv="";
+    if(d.inventory){
+      Object.keys(d.inventory).forEach(item=>{
+        inv+=item+" x"+d.inventory[item]+"<br>";
+      });
+    }
+    inventory.innerHTML=inv;
+  });
+
+  db.ref("trades/"+user.uid).on("value",snap=>{
+    let html="";
+    snap.forEach(t=>{
+      let v=t.val();
+      html+=`${v.fromItem} for ${v.toItem}
+      <button onclick="acceptTrade('${t.key}','${v.from}','${v.fromItem}','${v.toItem}')">Accept</button><br>`;
+    });
+    trades.innerHTML=html;
+  });
+}
+
+// PACK
+function openPack(){
+  db.ref("users/"+user.uid).once("value",snap=>{
+    let d=snap.val();
+    if(d.tokens<10) return alert("Not enough tokens");
+
+    let item="Item"+Math.floor(Math.random()*5);
+
+    db.ref("users/"+user.uid+"/tokens").set(d.tokens-10);
+
+    let inv=d.inventory||{};
+    inv[item]=(inv[item]||0)+1;
+
+    db.ref("users/"+user.uid+"/inventory").set(inv);
+
+    alert("You got "+item);
+  });
+}
+
+// SEND TRADE
+function sendTrade(){
+  db.ref("trades/"+tradeUser.value).push({
+    from:user.uid,
+    fromItem:yourItem.value,
+    toItem:theirItem.value
+  });
+}
+
+// ACCEPT TRADE
+function acceptTrade(id,from,fromItem,toItem){
+
+  db.ref("users/"+user.uid).once("value",snap=>{
+    let me=snap.val();
+
+    if(!me.inventory[toItem]) return alert("You don't have item");
+
+    // remove item from you
+    me.inventory[toItem]--;
+
+    db.ref("users/"+user.uid+"/inventory").set(me.inventory);
+
+    // give you item
+    me.inventory[fromItem]=(me.inventory[fromItem]||0)+1;
+
+    db.ref("users/"+user.uid+"/inventory").set(me.inventory);
+  });
+
+  // give other player item
+  db.ref("users/"+from).once("value",snap=>{
+    let them=snap.val();
+    them.inventory[fromItem]--;
+    them.inventory[toItem]=(them.inventory[toItem]||0)+1;
+    db.ref("users/"+from+"/inventory").set(them.inventory);
+  });
+
+  db.ref("trades/"+user.uid+"/"+id).remove();
+
+  alert("Trade complete!");
+}
+
+</script>
+
+</body>
+</html>
